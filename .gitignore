@@ -1,0 +1,17 @@
+# Logs
+logs/
+*.log
+
+# Generated images
+images/
+
+# PHP config with API keys — copy config/config.example.php instead
+config/config.php
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
