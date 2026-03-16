@@ -1,6 +1,6 @@
 # Blogy Assistant — Self-Hosted Auto-Blogging Engine
 
-A fully self-hosted PHP auto-blogging system that fetches articles from RSS/Atom feeds, rewrites them with AI, generates featured images, and publishes them to WordPress — automatically, on a cron schedule. Includes a complete web dashboard for monitoring, configuration, and content management.
+A fully self-hosted PHP auto-blogging system that fetches articles from RSS/Atom feeds, rewrites them with AI in a single optimized call, generates featured images, and publishes them to WordPress — automatically, on a cron schedule. Includes a complete web dashboard for monitoring, configuration, content management, and AI token cost tracking.
 
 ---
 
@@ -44,7 +44,7 @@ A fully self-hosted PHP auto-blogging system that fetches articles from RSS/Atom
 
 ## Overview
 
-Blogy Assistant is a zero-dependency, pure-PHP auto-blogging engine that runs on any LAMP/XAMPP server. Point it at RSS/Atom feeds, choose an AI provider (OpenAI GPT-4o or Google Gemini), and it handles the rest — fetching, rewriting, image sourcing, SEO metadata generation, category management, and WordPress publishing — on a configurable schedule with a full web dashboard for monitoring and management.
+Blogy Assistant is a zero-dependency, pure-PHP auto-blogging engine that runs on any LAMP/XAMPP server. Point it at RSS/Atom feeds, choose an AI provider (OpenAI GPT-4o or Google Gemini), and it handles the rest — fetching, rewriting, image sourcing, SEO metadata generation, category management, and WordPress publishing — on a configurable schedule with a full web dashboard for monitoring, management, and AI cost tracking.
 
 ---
 
@@ -52,14 +52,15 @@ Blogy Assistant is a zero-dependency, pure-PHP auto-blogging engine that runs on
 
 ### Pipeline
 - **Multi-feed RSS/Atom support** — unlimited feeds, each with independent language and WordPress site settings
-- **Dual AI providers** — OpenAI (GPT-4o and newer) or Google Gemini (2.0 Flash), switchable with one config key
+- **Dual AI providers** — OpenAI (GPT-4o and newer) or Google Gemini (2.5 Flash), switchable with one config key
+- **Single AI call per article** — `generateAll()` produces title, body, excerpt, meta title, meta description, focus keyword, and tags in one API round-trip (9-step journalist prompt)
 - **Per-feed language** — English, Urdu, Arabic, Hindi, French, or auto-detected from feed XML/HTTP headers
 - **RTL language support** — Arabic and Urdu use a dedicated RTL font for image overlays
-- **Custom prompt overrides** — replace any built-in AI prompt per operation (rewrite, title, excerpt, SEO meta) with template variables
-- **Smart image sourcing** — uses the article's own RSS feed image first; falls back to Pixabay search if none available
+- **Custom prompt overrides** — replace the built-in combined prompt or any individual prompt with your own template
+- **Smart image sourcing** — uses the article's own RSS feed image first; falls back to Pixabay with progressive keyword shortening (5→3→2→1 word→"news")
 - **Full GD image pipeline** — smart center-crop, watermark, title overlay, brightness/contrast adjustment
 - **WordPress REST API publishing** — post to any WP site using Application Passwords, with per-feed site override
-- **Auto category management** — matches existing WP categories by name; auto-creates a new category from SEO keyword if none match
+- **Auto category matching** — word-overlap scoring against existing WP categories; never creates duplicate or unwanted categories
 - **Auto tag management** — finds or creates WP tags based on AI-generated SEO tags
 - **Yoast SEO integration** — writes `meta_title`, `meta_description`, and `focus_keyword` to Yoast custom fields automatically
 - **Custom DB publishing** — alternative PDO/MySQL direct-insert mode for non-WordPress sites
@@ -69,10 +70,14 @@ Blogy Assistant is a zero-dependency, pure-PHP auto-blogging engine that runs on
 
 ### Dashboard
 - **5-step setup wizard** — guided first-time configuration with live connection tests at every step
+- **AI token cost tracking** — real-time token consumption and estimated cost per model (GPT-4o, Gemini Flash, etc.)
+- **7-day usage chart** — bar chart of token usage over the past 7 days
+- **System health panel** — PHP extension status, disk usage, log file sizes, image count, memory limit
 - **Live dashboard** — stat cards, countdown timer to next run, connection status pills, activity log, quick actions
 - **RSS Feed Manager** — add, edit, test, enable/disable, and delete feeds without touching config files
 - **Settings UI** — tabbed editor for all 8 config sections with inline connection tests and preset buttons
-- **Posts & Drafts** — paginated post history, draft approval queue, error log viewer
+- **Posts & Drafts** — paginated post history with search, direct WP link, draft approval queue, error log viewer
+- **Log management** — clear activity, error, posted, or token logs individually or all at once
 - **No Composer required** — pure PHP 8.1 + cURL + GD, no external dependencies
 
 ---
@@ -83,37 +88,40 @@ Blogy Assistant is a zero-dependency, pure-PHP auto-blogging engine that runs on
 Blogy_Assistant/
 │
 ├── config/
-│   └── config.php                    # Master configuration (all 8 sections)
+│   ├── config.php                    # Master configuration (all 8 sections) — gitignored
+│   └── config.example.php            # Template with blanked API keys — safe to commit
 │
 ├── src/
-│   ├── Logger.php                    # Static logging, duplicate tracking, stats
+│   ├── Logger.php                    # Static logging, duplicate tracking, token stats
 │   ├── RssFetcher.php                # RSS 2.0 / Atom / RDF feed parser
-│   ├── AiService.php                 # OpenAI + Gemini unified rewriting service
+│   ├── AiService.php                 # OpenAI + Gemini unified rewriting (single generateAll call)
 │   ├── ImageService.php              # Feed image + Pixabay fallback + GD pipeline
 │   ├── WordPressPublisher.php        # WordPress REST API publisher with auto-categories
 │   ├── CustomSitePublisher.php       # Direct PDO/MySQL publisher
 │   └── Mailer.php                    # Email notifications (mail() + raw SMTP)
 │
 ├── dashboard/
-│   ├── api.php                       # AJAX JSON backend (all dashboard actions)
+│   ├── api.php                       # AJAX JSON backend (21 actions)
 │   ├── setup.php                     # 5-step first-time setup wizard
-│   ├── index.php                     # Dashboard home — stats, logs, quick actions
+│   ├── index.php                     # Dashboard home — stats, token chart, system health, logs
 │   ├── feeds.php                     # RSS Feed Manager
 │   ├── settings.php                  # Tabbed settings editor (5 tabs)
-│   └── posts.php                     # Post history + draft approval queue
+│   └── posts.php                     # Post history + search + draft approval queue
 │
 ├── assets/
 │   ├── font.ttf                      # LTR font for image title overlays
 │   └── font-rtl.ttf                  # RTL font for Arabic / Urdu overlays
 │
-├── images/                           # Generated featured images (auto-created)
+├── images/                           # Generated featured images (auto-created, gitignored)
 │
 ├── logs/
 │   ├── activity.log                  # INFO-level event log
 │   ├── error.log                     # Error log
-│   └── posted.log                    # One URL per line — already-published articles
+│   ├── posted.log                    # One URL per line — already-published articles
+│   └── tokens.log                    # JSON-lines token usage per AI call
 │
 ├── run.php                           # Main CLI entry point / cron runner
+├── .gitignore
 └── README.md
 ```
 
@@ -128,6 +136,7 @@ Blogy_Assistant/
 | `simplexml` extension | RSS / Atom parsing |
 | `gd` extension | Featured image generation — enable in `php.ini`: `extension=gd` |
 | `pdo_mysql` extension | Custom site DB publishing (optional) |
+| `mbstring` extension | Multi-byte string handling for non-Latin languages |
 | Web server | Apache / Nginx / XAMPP |
 | OpenAI **or** Gemini API key | At least one required for AI rewriting |
 | Pixabay API key | Free — fallback image search |
@@ -145,27 +154,32 @@ Then restart Apache from the XAMPP Control Panel.
 
 ## Installation
 
-1. **Copy the project** into your web root:
-   ```
-   c:\xampp\htdocs\Blogy_Assistant\
+1. **Clone or copy the project** into your web root:
+   ```bash
+   git clone https://github.com/SyedSafwanAli/Bloggy_Assistant.git Blogy_Assistant
    ```
 
 2. **Place fonts** in `assets/`:
    - `font.ttf` — any LTR TTF font (e.g. Roboto, Open Sans)
    - `font-rtl.ttf` — Arabic/Urdu-compatible font (e.g. Noto Naskh Arabic)
 
-3. **Open the setup wizard** in your browser:
+3. **Create the config file** from the example template:
+   ```bash
+   cp config/config.example.php config/config.php
+   ```
+
+4. **Open the setup wizard** in your browser:
    ```
    http://localhost/Blogy_Assistant/dashboard/setup.php
    ```
    The wizard guides you through all API keys, feeds, and publishing settings with live connection tests.
 
-4. **Or configure manually** — edit `config/config.php` directly, then access the dashboard at:
+5. **Or configure manually** — edit `config/config.php` directly, then access the dashboard at:
    ```
    http://localhost/Blogy_Assistant/dashboard/
    ```
 
-5. **Create the database table** (if using custom site mode):
+6. **Create the database table** (if using custom site mode):
    ```sql
    CREATE TABLE blogs (
      id               INT AUTO_INCREMENT PRIMARY KEY,
@@ -185,14 +199,14 @@ Then restart Apache from the XAMPP Control Panel.
    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
    ```
 
-6. **Test a manual run:**
+7. **Test a manual run:**
    ```bash
    php run.php
    ```
 
-7. **Set up a cron job** to match your `interval_hours` setting (default: every 6 hours):
+8. **Set up a cron job** to match your `interval_hours` setting:
    ```
-   0 */6 * * * php /xampp/htdocs/Blogy_Assistant/run.php >> /xampp/htdocs/Blogy_Assistant/logs/cron.log 2>&1
+   0 */6 * * * php /path/to/Blogy_Assistant/run.php >> /path/to/Blogy_Assistant/logs/cron.log 2>&1
    ```
    The exact command is shown and copyable in **Settings → Schedule**.
 
@@ -232,14 +246,15 @@ All settings live in `config/config.php` and can be edited directly or via the d
 'ai' => [
     'provider'       => 'openai',              // 'openai' or 'gemini'
     'openai_api_key' => 'YOUR_OPENAI_API_KEY',
-    'openai_model'   => 'gpt-4o',             // gpt-4o, gpt-4o-mini, gpt-4-turbo, etc.
+    'openai_model'   => 'gpt-4o',
     'gemini_api_key' => 'YOUR_GEMINI_API_KEY',
-    'gemini_model'   => 'gemini-2.0-flash',
+    'gemini_model'   => 'gemini-2.5-flash',
     'timeout'        => 60,
-    'tone'           => 'professional',        // professional / casual / news
-    'min_words'      => 600,
+    'tone'           => 'news',                // professional / casual / news
+    'min_words'      => 400,
     'custom_prompts' => [
-        'rewrite'  => '',  // leave empty to use built-in prompt
+        'combined' => '',   // leave empty to use built-in 9-step journalist prompt
+        'rewrite'  => '',
         'title'    => '',
         'excerpt'  => '',
         'seo_meta' => '',
@@ -247,16 +262,21 @@ All settings live in `config/config.php` and can be edited directly or via the d
 ],
 ```
 
+The `combined` prompt is the primary prompt used in `generateAll()`. It receives `{title}`, `{content}`, `{language}`, and `{min_words}` and must return a valid JSON object with: `title`, `body`, `excerpt`, `meta_title`, `meta_description`, `focus_keyword`, `tags`.
+
+Leave `combined` empty to use the built-in 9-step journalist prompt (quality filter → duplicate detection → topic clustering → event writing → headline → rewrite → SEO → internal linking → metadata).
+
+Individual prompts (`rewrite`, `title`, `excerpt`, `seo_meta`) are used as fallbacks if the combined JSON call fails.
+
 **Custom prompt placeholders:**
 
 | Key | Available placeholders |
 |---|---|
+| `combined` | `{title}` `{content}` `{language}` `{min_words}` |
 | `rewrite` | `{title}` `{content}` `{language}` `{tone}` `{min_words}` |
 | `title` | `{title}` `{content}` `{language}` |
 | `excerpt` | `{content}` `{language}` |
 | `seo_meta` | `{title}` `{content}` `{language}` |
-
-See the [Custom Prompts Guide](#custom-prompts-guide) for ready-to-use news prompts.
 
 ---
 
@@ -272,7 +292,7 @@ See the [Custom Prompts Guide](#custom-prompts-guide) for ready-to-use news prom
 ],
 ```
 
-> **Note:** Pixabay is used as a **fallback only**. If the RSS feed provides its own article image, that image is always used first. Pixabay is called only when no feed image is found.
+> **Note:** Pixabay is used as a **fallback only**. If the RSS feed provides its own article image, that image is always used first. When searching Pixabay, the keyword is progressively shortened (5 words → 3 → 2 → 1 → "news") until results are found.
 
 ---
 
@@ -305,7 +325,7 @@ See the [Custom Prompts Guide](#custom-prompts-guide) for ready-to-use news prom
     'username'     => 'admin',
     'app_password' => 'xxxx xxxx xxxx xxxx',  // WP Application Password
     'status'       => 'publish',              // publish / draft / pending
-    'category'     => [1],                   // fallback only — auto-management handles this
+    'category'     => [1],                   // last-resort fallback only
     'author_id'    => 1,
 ],
 ```
@@ -314,10 +334,10 @@ Generate an Application Password: **WP Admin → Users → Edit User → Applica
 
 **Auto Category Management:**
 - On every publish, the tool fetches all existing WP categories
-- Matches against the article's `focus_keyword` and SEO `tags`
-- If a match is found → assigns that category
-- If no match → automatically creates a new category from the focus keyword
-- `category: [1]` in config is the last-resort fallback (Uncategorized) only
+- Scores each category by word overlap with the article's `focus_keyword` and SEO `tags`
+- Assigns the highest-scoring existing category (score must be > 0)
+- **Never creates new categories** — if no match is found, falls back to Uncategorized (ID 1)
+- Word-overlap matching handles different word orders correctly (e.g. "Oscars 2026" matches "2026 Oscars")
 
 **Yoast SEO fields** (`_yoast_wpseo_title`, `_yoast_wpseo_metadesc`, `_yoast_wpseo_focuskw`) are written automatically when Yoast SEO is installed.
 
@@ -374,6 +394,7 @@ An alternative to WordPress for custom PHP sites. See the SQL schema in the Inst
     'posted_log'      => __DIR__ . '/../logs/posted.log',
     'error_log'       => __DIR__ . '/../logs/error.log',
     'activity_log'    => __DIR__ . '/../logs/activity.log',
+    'tokens_log'      => __DIR__ . '/../logs/tokens.log',
     'duplicate_check' => true,        // skip URLs already in posted.log
 ],
 ```
@@ -409,11 +430,14 @@ Progress dots at the top are clickable to navigate back to completed steps. Step
 | Section | Detail |
 |---|---|
 | Stat cards | Total Published, Posts Today, Active Feeds, Next Run countdown (live, updates every second) |
-| Status bar | AI provider, Pixabay, WordPress — green/red indicator pills |
+| Status bar | AI provider + model name, Pixabay, WordPress — green/red indicator pills |
+| Token stats | 5 cards: Tokens Today, Cost Today, Total Tokens, Total Cost, Total Errors |
+| 7-day chart | Bar chart of token usage — today highlighted in green, past days in purple |
+| System Health | PHP extension pills (ok/fail), PHP version, memory limit, disk free/used%, image count, log file sizes |
+| Recent Posts | Last 10 published posts with language color pill, source, and date |
 | Activity Log | Last 100 log lines, color-coded INFO/ERROR, auto-refreshes every 30s |
+| Clear Log buttons | Clear Activity / Clear Errors / Clear Posted / Clear All — instant via API |
 | Quick Actions | Run Now (background process), Pause/Resume toggle |
-
-The **Run Now** button fires `run.php` as a background process via `shell_exec`.
 
 ---
 
@@ -451,8 +475,10 @@ Each tab has its own **Save** button that merges only its section into the full 
 
 **All Posts tab**
 - Paginated post history — 20 per page, client-side, no round-trip per page flip
-- Columns: Title, Source, Language (color-coded pill), Status, Published At
-- Language pill colors: English=blue, Urdu=green, Arabic=orange, Hindi=purple, French=yellow
+- Search bar — filter by title, source, or language in real time
+- Columns: Title, Source, Language (color-coded pill), Status, Published At, Actions
+- **↗ WP** button in Actions column links directly to the live WordPress post
+- Fetches posts from WP REST API when in WordPress mode (no DB required)
 
 **Draft Queue tab**
 - Functional only when `custom_site.enabled = true`
@@ -471,7 +497,8 @@ Single AJAX endpoint. Accepts JSON body, query string, or form-encoded POST. Alw
 |---|---|
 | Settings | `save_settings`, `save_feeds` |
 | Pipeline | `run_now`, `pause_toggle` |
-| Logs | `get_stats`, `get_logs`, `clear_posted_log` |
+| Stats | `get_stats`, `get_token_stats`, `get_system_health` |
+| Logs | `get_logs`, `clear_posted_log`, `clear_activity_log`, `clear_error_log`, `clear_token_log`, `clear_all_logs` |
 | Connection tests | `test_wp_connection`, `get_wp_categories`, `test_ai_connection`, `test_pixabay`, `test_feed` |
 | Posts | `get_posts`, `get_drafts`, `approve_post`, `reject_post` |
 
@@ -493,10 +520,33 @@ Logger::markPosted('https://source.com/article-slug');
 Logger::isPosted('https://source.com/article-slug');  // bool
 Logger::getPostedCount();                              // int
 Logger::getStats();
-// ['total_posted' => 42, 'today_posted' => 3, 'error_count' => 1]
+// ['total_posted' => 42, 'today_posted' => 3, 'error_count' => 1, ...]
+
+// Token tracking
+Logger::logTokens(1200, 800, 'gpt-4o', 'openai', 'Article Title Here');
+
+Logger::getTokenStats();
+// ['today_tokens' => 2000, 'cost_today' => 0.03, 'total_tokens' => 50000,
+//  'cost_total' => 1.25, 'by_day' => [...7 days...], 'calls_today' => 3, ...]
+
+// Log management
+Logger::clearActivityLog();
+Logger::clearErrorLog();
+Logger::clearTokenLog();
+Logger::clearPosted();
 ```
 
-All writes use `FILE_APPEND | LOCK_EX` to prevent race conditions under concurrent cron runs.
+Token cost rates (per 1M tokens, input/output):
+
+| Model | Input | Output |
+|---|---|---|
+| gpt-4o | $2.50 | $10.00 |
+| gpt-4o-mini | $0.15 | $0.60 |
+| gpt-4-turbo | $10.00 | $30.00 |
+| gemini-2.5-flash | $0.075 | $0.30 |
+| gemini-2.0-flash | $0.075 | $0.30 |
+
+All writes use `FILE_APPEND | LOCK_EX` to prevent race conditions under concurrent cron runs. Token log uses JSON-lines format (one JSON object per line).
 
 ---
 
@@ -536,22 +586,31 @@ Unified wrapper for OpenAI and Gemini. Switch providers in config with no code c
 ```php
 $ai = new AiService($config);
 
+// Primary: single API call returning all fields (4000 max tokens)
+AiService::$currentArticleTitle = $article['title'];
+$result = $ai->generateAll($originalTitle, $content, 'English');
+// Returns:
+[
+    'title'            => 'High CTR SEO headline',
+    'body'             => '<p>Full HTML article...</p>',
+    'excerpt'          => '2-3 sentence summary',
+    'meta_title'       => 'SEO title ≤ 60 chars',
+    'meta_description' => 'Meta description ≤ 155 chars',
+    'focus_keyword'    => 'primary keyword phrase',
+    'tags'             => ['tag1', 'tag2', 'tag3', 'tag4', 'tag5'],
+]
+
+// Fallback individual calls (used if combined JSON fails)
 $title   = $ai->generateTitle($originalTitle, $content, 'English');
 $body    = $ai->rewriteArticle($title, $content, 'English');
 $excerpt = $ai->generateExcerpt($body, 'English');
 $seo     = $ai->generateSeoMeta($title, $body, 'English');
-
-// $seo shape:
-[
-    'meta_title'       => 'SEO title up to 60 chars',
-    'meta_description' => 'Meta description up to 160 chars',
-    'focus_keyword'    => 'main keyword phrase',
-    'tags'             => ['tag1', 'tag2', 'tag3', 'tag4', 'tag5'],
-]
 ```
 
-- `generateSeoMeta()` strips markdown code fences and returns a safe fallback array if JSON parsing fails
-- Custom prompts in config override built-in prompts per operation
+- `generateAll()` calls the `combined` custom prompt if set, otherwise uses the built-in 9-step journalist prompt
+- Token usage is logged automatically after every API call via `Logger::logTokens()`
+- `AiService::$currentArticleTitle` (static) passes article context to the token log without changing method signatures
+- Falls back to 4 individual calls if the combined JSON response fails to parse
 - `AiService::$rtlLanguages = ['Urdu', 'Arabic']` — used by ImageService for font selection
 
 ---
@@ -568,7 +627,7 @@ $filepath = $img->process($keyword, $title, $language, $feedImageUrl);
 
 **Image sourcing priority:**
 1. **Feed image** (`$feedImageUrl`) — uses the article's own image from RSS if available
-2. **Pixabay search** — searches using `$keyword` if no feed image found
+2. **Pixabay progressive search** — tries keyword at 5 words → 3 → 2 → 1 word → "news" until results found
 
 **GD processing pipeline:**
 
@@ -596,15 +655,16 @@ $success = $wp->publish($article, $imagePath, $seoMeta);  // bool
 |---|---|---|
 | Upload image | `POST /wp-json/wp/v2/media` | Raw binary upload; returns `media_id` |
 | Resolve tags | `GET/POST /wp-json/wp/v2/tags` | Finds existing by exact name or creates new |
-| Resolve category | `GET/POST /wp-json/wp/v2/categories` | Matches by name from SEO keyword; creates if no match |
+| Resolve category | `GET /wp-json/wp/v2/categories` | Word-overlap scoring — never creates new categories |
 | Create post | `POST /wp-json/wp/v2/posts` | Assigns category, tags, featured media, Yoast SEO meta |
 
-**Auto category logic:**
+**Auto category logic (word-overlap scoring):**
 - Fetches all WP categories (up to 100)
-- Tries to match `focus_keyword` then each SEO tag against existing category names (case-insensitive)
-- On match → assigns that category ID
-- On no match → creates a new category named from the focus keyword
-- Fallback → Uncategorized (ID 1)
+- Splits `focus_keyword` + all `tags` into individual words
+- Scores each WP category name by how many words overlap
+- Assigns highest-scoring category (score must be > 0)
+- If no category scores > 0 → falls back to Uncategorized (ID 1)
+- **Never creates new categories** — prevents taxonomy bloat
 
 Additional behaviour:
 - `draft_mode: true` overrides `wordpress.status` globally to `'draft'`
@@ -679,11 +739,14 @@ php run.php  (or cron)
         ▼
   foreach article:
   ┌────────────────────────────────────────────┐
-  │  AiService                                 │
-  │  → generateTitle()    new SEO headline     │
-  │  → rewriteArticle()   full HTML body       │
-  │  → generateExcerpt()  2-3 sentence blurb  │
-  │  → generateSeoMeta()  title/desc/kw/tags  │
+  │  AiService::generateAll()  (single call)   │
+  │  → 9-step journalist prompt                │
+  │  → Returns JSON: title, body, excerpt,     │
+  │    meta_title, meta_description,           │
+  │    focus_keyword, tags                     │
+  │  → Logs token usage to tokens.log          │
+  │  → Falls back to 4 individual calls        │
+  │    if JSON parse fails                     │
   └────────────────────────────────────────────┘
         │
         ▼
@@ -691,7 +754,8 @@ php run.php  (or cron)
   │  ImageService                              │
   │  1. Feed image available?                  │
   │     YES → download feed image directly     │
-  │     NO  → search Pixabay with keyword      │
+  │     NO  → Pixabay search with progressive  │
+  │           keyword shortening               │
   │  2. Smart center-crop to output size       │
   │  3. Brightness / contrast adjustment       │
   │  4. Overlay title (LTR or RTL font)        │
@@ -704,8 +768,8 @@ php run.php  (or cron)
   │  WordPressPublisher (if enabled)           │
   │  → Upload image to WP Media Library        │
   │  → Resolve / auto-create tags              │
-  │  → Resolve / auto-create category          │
-  │     (match by SEO keyword → create new)    │
+  │  → Match category by word-overlap score    │
+  │    (never creates new categories)          │
   │  → POST /wp/v2/posts + Yoast SEO meta      │
   └────────────────────────────────────────────┘
         │
@@ -725,7 +789,8 @@ php run.php  (or cron)
         ▼
   Dashboard reflects results
   ┌────────────────────────────────────────────┐
-  │  index.php  → stat cards update            │
+  │  index.php  → stat cards + token chart     │
+  │             → system health panel          │
   │  posts.php  → post appears in history      │
   │             → or draft queue if paused     │
   │  Activity log auto-refreshes every 30s     │
@@ -758,7 +823,7 @@ Done. Processed: 3 article(s).
 
 **Cron (every 6 hours):**
 ```
-0 */6 * * * php /xampp/htdocs/Blogy_Assistant/run.php >> /xampp/htdocs/Blogy_Assistant/logs/cron.log 2>&1
+0 */6 * * * php /path/to/Blogy_Assistant/run.php >> /path/to/Blogy_Assistant/logs/cron.log 2>&1
 ```
 
 **Pause without disabling cron:**
@@ -776,9 +841,45 @@ Then approve or reject drafts in **Posts → Draft Queue**.
 
 ## Custom Prompts Guide
 
-Custom prompts let you control exactly how the AI rewrites articles. Leave fields empty to use the built-in prompts. These are optimized for global news coverage:
+Custom prompts let you control exactly how the AI rewrites articles. Leave fields empty to use the built-in prompts.
 
-### Rewrite Article
+### Combined Prompt (recommended — single API call)
+
+The combined prompt must return a **valid JSON object** with exactly these keys. This is the most efficient approach as it makes only one API call per article.
+
+```
+You are a professional global news journalist, SEO strategist, and editor.
+
+Rewrite the following article and return ONLY valid JSON.
+
+Original Title: {title}
+Original Content: {content}
+Language: {language}
+
+Return this exact JSON structure:
+{
+  "title": "High CTR headline under 12 words",
+  "body": "Full rewritten article in HTML with paragraphs and subheadings (min {min_words} words)",
+  "excerpt": "2-3 sentence news summary",
+  "meta_title": "SEO title under 60 characters",
+  "meta_description": "SEO description under 155 characters",
+  "focus_keyword": "Primary keyword phrase",
+  "tags": ["tag1","tag2","tag3","tag4","tag5"]
+}
+
+Rules:
+- Output only valid JSON, no markdown, no code blocks
+- Article body must be HTML (use <p>, <h2>, <h3> tags)
+- Minimum {min_words} words in body
+- Follow inverted pyramid structure
+- Do not copy sentences from the original
+```
+
+### Individual Fallback Prompts
+
+These are used if the combined JSON call fails to parse.
+
+#### Rewrite Article
 ```
 You are a professional global news journalist. Rewrite the following news article in {language} with a {tone} tone.
 
@@ -788,64 +889,58 @@ Original Content: {content}
 Requirements:
 - Minimum {min_words} words
 - Start with a strong news lead (who, what, when, where, why)
-- Use inverted pyramid structure (most important facts first)
+- Use inverted pyramid structure
 - Include context and background for international readers
 - Keep facts accurate — do not add fictional details
-- Use clear, concise journalistic language
 - Add subheadings if content exceeds 400 words
-- End with implications or what to watch next
 
-Output only the rewritten article body. No introductory sentences.
+Output only the rewritten article body in HTML. No introductory sentences.
 ```
 
-### Generate Title
+#### Generate Title
 ```
-You are a news headline writer for a global news website. Create a compelling headline in {language} for the following article.
+You are a news headline writer. Create a compelling SEO headline in {language}.
 
 Original Title: {title}
-Content Summary: {content}
+Content: {content}
 
 Requirements:
 - Maximum 12 words
 - Use active voice
 - Must convey urgency or importance
-- No clickbait — headline must be factually accurate
+- No clickbait — factually accurate
 - Output only the headline, nothing else
 ```
 
-### Generate Excerpt
+#### Generate Excerpt
 ```
-You are a news editor. Write a brief news summary in {language} for the following article content.
+Write a brief news summary in {language} for the following content.
 
 Content: {content}
 
 Requirements:
 - Exactly 2-3 sentences
 - Cover the 5 Ws: Who, What, When, Where, Why
-- Written for a global audience
 - Neutral, objective tone
 - Output only the excerpt, nothing else
 ```
 
-### SEO Meta
+#### SEO Meta
 ```
-You are an SEO specialist for a global news website. Generate SEO metadata in {language} for the following article.
+Generate SEO metadata in {language} for the following article.
 
 Title: {title}
 Content: {content}
 
-Return a valid JSON object with exactly these keys:
+Return valid JSON only:
 {
   "meta_title": "SEO title under 60 characters",
-  "meta_description": "Compelling meta description under 155 characters",
+  "meta_description": "Meta description under 155 characters",
   "focus_keyword": "Primary keyword phrase (2-4 words)",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
 }
 
-Rules:
-- meta_title should include the focus keyword
-- tags should be relevant news categories (e.g. Politics, Economy, US, NATO)
-- Output only raw JSON — no markdown, no code fences, no extra text
+Output only raw JSON — no markdown, no code fences.
 ```
 
 ---
@@ -854,21 +949,29 @@ Rules:
 
 | Status | Component | Description |
 |---|---|---|
-| Done | `config/config.php` | Master configuration — all 8 sections |
-| Done | `src/Logger.php` | Activity log, error log, duplicate tracking, stats |
-| Done | `src/RssFetcher.php` | RSS 2.0 / Atom / RDF parser with language detection |
-| Done | `src/AiService.php` | OpenAI (GPT-4o) + Gemini unified rewriting service |
-| Done | `src/ImageService.php` | Feed image priority + Pixabay fallback + GD pipeline |
-| Done | `src/WordPressPublisher.php` | WP REST API — media upload, auto tag+category, post creation |
-| Done | `src/CustomSitePublisher.php` | PDO/MySQL publisher with draft approval workflow |
-| Done | `src/Mailer.php` | Email notifications via mail() and raw SMTP |
-| Done | `run.php` | Main CLI entry point / cron runner |
-| Done | `dashboard/api.php` | AJAX JSON backend — 15 actions |
-| Done | `dashboard/setup.php` | 5-step guided setup wizard |
-| Done | `dashboard/index.php` | Live dashboard — stats, logs, quick actions |
-| Done | `dashboard/feeds.php` | RSS Feed Manager — add, edit, test, toggle, delete |
-| Done | `dashboard/settings.php` | Tabbed settings editor — 5 tabs, all config sections |
-| Done | `dashboard/posts.php` | Post history + draft approval queue + error log |
-| Done | Auto category management | WP categories auto-matched or created from SEO keywords |
-| Done | Feed image priority | RSS feed image used first; Pixabay as fallback only |
-| Done | Custom prompts | Per-operation prompt overrides with template variables |
+| ✅ Done | `config/config.php` | Master configuration — all 8 sections |
+| ✅ Done | `config/config.example.php` | Safe template for version control |
+| ✅ Done | `src/Logger.php` | Activity log, error log, duplicate tracking, token stats, log clearing |
+| ✅ Done | `src/RssFetcher.php` | RSS 2.0 / Atom / RDF parser with language detection |
+| ✅ Done | `src/AiService.php` | OpenAI + Gemini — single `generateAll()` call with 9-step prompt |
+| ✅ Done | `src/ImageService.php` | Feed image priority + Pixabay progressive fallback + GD pipeline |
+| ✅ Done | `src/WordPressPublisher.php` | WP REST API — media upload, auto tags, word-overlap category matching |
+| ✅ Done | `src/CustomSitePublisher.php` | PDO/MySQL publisher with draft approval workflow |
+| ✅ Done | `src/Mailer.php` | Email notifications via mail() and raw SMTP |
+| ✅ Done | `run.php` | Main CLI entry point / cron runner |
+| ✅ Done | `dashboard/api.php` | AJAX JSON backend — 21 actions |
+| ✅ Done | `dashboard/setup.php` | 5-step guided setup wizard |
+| ✅ Done | `dashboard/index.php` | Live dashboard — stats, token chart, system health, log management |
+| ✅ Done | `dashboard/feeds.php` | RSS Feed Manager — add, edit, test, toggle, delete |
+| ✅ Done | `dashboard/settings.php` | Tabbed settings editor — 5 tabs, all config sections |
+| ✅ Done | `dashboard/posts.php` | Post history + search + WP link + draft approval queue |
+| ✅ Done | Single AI call | `generateAll()` — all fields in one API round-trip, 4-call fallback |
+| ✅ Done | Token cost tracking | Per-call logging, daily/total stats, 7-day chart, cost estimation |
+| ✅ Done | Auto category matching | Word-overlap scoring — never creates unwanted categories |
+| ✅ Done | Feed image priority | RSS feed image used first; Pixabay progressive fallback |
+| ✅ Done | System health panel | Extensions, disk usage, log sizes, image count |
+| ✅ Done | Log management | Clear individual or all logs from dashboard |
+| ⬜ Planned | Multi-site dashboard | Unified view across multiple WordPress installations |
+| ⬜ Planned | Anthropic Claude support | Third AI provider option |
+| ⬜ Planned | Article preview | Preview AI-rewritten article before publishing |
+| ⬜ Planned | Webhook trigger | Trigger pipeline via HTTP POST (no cron needed) |
