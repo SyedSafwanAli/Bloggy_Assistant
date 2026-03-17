@@ -3,6 +3,11 @@
 /**
  * AutoBlogger — Main pipeline entry point.
  * Usage: php run.php
+ *
+ * Flow:
+ *   1. Fetch new articles from RSS feeds
+ *   2. Insert each as a pending job in the DB queue
+ *   3. Process pending jobs (AI → Image → Publish)
  */
 
 define('BASE_PATH', __DIR__);
@@ -44,10 +49,26 @@ $wp     = !empty($cfg['wordpress']['enabled'])   ? new WordPressPublisher($cfg) 
 $db     = !empty($cfg['custom_site']['enabled']) ? new CustomSitePublisher($cfg) : null;
 
 // -------------------------------------------------------------------------
-// Fetch articles
+// Job Queue — optional (only if queue_db is configured)
 // -------------------------------------------------------------------------
 
-$articles = $rss->fetch((int) ($cfg['general']['posts_per_run'] ?? 3));
+$queue = null;
+if (!empty($cfg['queue_db']['name'])) {
+    require_once BASE_PATH . '/src/JobQueue.php';
+    try {
+        $queue = new JobQueue($cfg);
+    } catch (Exception $e) {
+        Logger::error('JobQueue DB connect failed: ' . $e->getMessage());
+        // Non-fatal — fall through to direct processing
+    }
+}
+
+// -------------------------------------------------------------------------
+// Fetch articles from RSS
+// -------------------------------------------------------------------------
+
+$postsPerRun = (int) ($cfg['general']['posts_per_run'] ?? 3);
+$articles    = $rss->fetch($postsPerRun);
 
 if (empty($articles)) {
     Logger::info('No new articles found.');
@@ -55,35 +76,105 @@ if (empty($articles)) {
     exit(0);
 }
 
-echo "Found " . count($articles) . " article(s). Processing...\n";
+echo "Found " . count($articles) . " article(s).\n";
 
 // -------------------------------------------------------------------------
-// Pipeline
+// STEP 1 — Enqueue jobs (if queue is available)
 // -------------------------------------------------------------------------
+
+if ($queue !== null) {
+    $enqueued = 0;
+    foreach ($articles as $article) {
+        $feedUrl    = $article['feed_url'] ?? '';
+        $articleUrl = $article['url']      ?? '';
+
+        if ($articleUrl === '') {
+            continue;
+        }
+
+        $jobId = $queue->addJob($feedUrl, $articleUrl);
+        if ($jobId > 0) {
+            $enqueued++;
+            Logger::info("Queued: {$article['title']} [job #{$jobId}]");
+        }
+    }
+
+    echo "Enqueued: {$enqueued} job(s).\n";
+
+    // Reload pending jobs from DB so we process in queue order
+    $pendingJobs = $queue->getPendingJobs($postsPerRun);
+
+    // Map article_url → article data for quick lookup
+    $articleMap = [];
+    foreach ($articles as $art) {
+        $articleMap[$art['url']] = $art;
+    }
+} else {
+    // No queue — build a fake job list from fetched articles directly
+    $pendingJobs = [];
+    foreach ($articles as $art) {
+        $pendingJobs[] = [
+            'id'          => 0,
+            'feed_url'    => $art['feed_url'] ?? '',
+            'article_url' => $art['url'],
+            'attempts'    => 0,
+        ];
+    }
+    $articleMap = [];
+    foreach ($articles as $art) {
+        $articleMap[$art['url']] = $art;
+    }
+}
+
+// -------------------------------------------------------------------------
+// STEP 2 — Process jobs
+// -------------------------------------------------------------------------
+
+echo "Processing " . count($pendingJobs) . " job(s)...\n";
 
 $processed = 0;
 
-foreach ($articles as $article) {
+foreach ($pendingJobs as $job) {
+    $jobId      = (int) $job['id'];
+    $articleUrl = $job['article_url'];
+
+    // Resolve article data
+    $article = $articleMap[$articleUrl] ?? null;
+
+    if ($article === null) {
+        // Job was queued in a previous run — article data not in memory, skip for now
+        Logger::info("Job #{$jobId}: article data not in current batch, skipping.");
+        continue;
+    }
+
+    if ($queue !== null && $jobId > 0) {
+        $queue->markProcessing($jobId);
+    }
+
     try {
         $lang = $article['language'] ?? ($cfg['general']['language'] ?? 'English');
 
         echo "Processing: {$article['title']}\n";
         Logger::info("Processing: {$article['title']}");
 
-        // Single AI call — returns title, content, excerpt + all SEO meta
+        // ------------------------------------------------------------------
+        // AI — single call returning all fields
+        // ------------------------------------------------------------------
         AiService::$currentArticleTitle = $article['title'];
         $aiResult           = $ai->generateAll($article['title'], $article['content'], $lang);
         $article['title']   = $aiResult['title'];
         $article['content'] = $aiResult['content'];
         $article['excerpt'] = $aiResult['excerpt'];
-        $seoMeta            = [
+        $seoMeta = [
             'meta_title'       => $aiResult['meta_title'],
             'meta_description' => $aiResult['meta_description'],
             'focus_keyword'    => $aiResult['focus_keyword'],
             'tags'             => $aiResult['tags'],
         ];
 
-        // Featured image — prefer RSS feed image, fall back to Pixabay
+        // ------------------------------------------------------------------
+        // Image — feed image first, Pixabay progressive fallback
+        // ------------------------------------------------------------------
         $feedImage    = $article['image'] ?? '';
         $imageKeyword = $seoMeta['focus_keyword'];
         if ($imageKeyword === '') {
@@ -92,17 +183,19 @@ foreach ($articles as $article) {
         }
         $imagePath = $img->process($imageKeyword, $article['title'], $lang, $feedImage);
 
+        // ------------------------------------------------------------------
         // Publish
-        $publishedAny = false;
+        // ------------------------------------------------------------------
+        $publishedAny  = false;
         $publishErrors = [];
 
         if ($wp !== null) {
             $wpOk = $wp->publish($article, $imagePath, $seoMeta);
             if ($wpOk) {
                 $publishedAny = true;
-                Logger::info("WordPress: published successfully — {$article['title']}");
+                Logger::info("WordPress: published — {$article['title']}");
             } else {
-                $publishErrors[] = 'WordPress publish failed (check error log)';
+                $publishErrors[] = 'WordPress publish failed';
                 Logger::error("WordPress: publish failed — {$article['title']}");
             }
         }
@@ -111,23 +204,33 @@ foreach ($articles as $article) {
             $dbOk = $db->publish($article, $imagePath, $seoMeta);
             if ($dbOk) {
                 $publishedAny = true;
-                Logger::info("CustomSite: published successfully — {$article['title']}");
+                Logger::info("CustomSite: published — {$article['title']}");
             } else {
-                $publishErrors[] = 'Custom site DB publish failed (check error log)';
+                $publishErrors[] = 'Custom site DB publish failed';
                 Logger::error("CustomSite: publish failed — {$article['title']}");
             }
         }
 
         if (!$publishedAny) {
-            // Nothing published — do NOT mark as posted so it can be retried
             $errMsg = implode('; ', $publishErrors) ?: 'No publisher enabled or all failed';
             throw new RuntimeException($errMsg);
         }
 
-        // Mark as posted only after at least one successful publish
+        // ------------------------------------------------------------------
+        // Save to articles table (queue DB)
+        // ------------------------------------------------------------------
+        if ($queue !== null) {
+            $queue->saveArticle($article, $seoMeta, $imagePath);
+        }
+
+        // Mark posted + complete job
         Logger::markPosted($article['url']);
         Logger::info("Published: {$article['title']}");
         echo "  Done: {$article['title']}\n";
+
+        if ($queue !== null && $jobId > 0) {
+            $queue->markCompleted($jobId);
+        }
 
         // Success notification
         $stats   = Logger::getStats();
@@ -143,6 +246,10 @@ foreach ($articles as $article) {
         Logger::error($e->getMessage());
         $mailer->sendError($e->getMessage(), $article['title'] ?? '');
         echo "  Error: {$e->getMessage()}\n";
+
+        if ($queue !== null && $jobId > 0) {
+            $queue->markFailed($jobId, $e->getMessage());
+        }
     }
 }
 
@@ -151,3 +258,8 @@ foreach ($articles as $article) {
 // -------------------------------------------------------------------------
 
 echo "\nDone. Processed: {$processed} article(s).\n";
+
+if ($queue !== null) {
+    $qStats = $queue->getStats();
+    echo "Queue — pending: {$qStats['pending']}, completed: {$qStats['completed']}, failed: {$qStats['failed']}\n";
+}

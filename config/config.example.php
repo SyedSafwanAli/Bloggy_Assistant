@@ -98,6 +98,14 @@ return [
         'on_error'       => true,
     ],
 
+    // ── Queue Database ────────────────────────────────────────────
+    'queue_db' => [
+        'host' => 'localhost',
+        'name' => 'Bloggy_Assistant',   // DB created in phpMyAdmin — run database/schema.sql
+        'user' => 'root',
+        'pass' => '',
+    ],
+
     // ── General Settings ──────────────────────────────────────────
     'general' => [
         'language'        => 'English',
